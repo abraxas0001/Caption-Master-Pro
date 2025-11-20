@@ -1,6 +1,6 @@
-# 🎯 Ultimate Caption Provider Bot
+# 🎯 Caption-Master-Pro
 
-Advanced Telegram bot with powerful caption manipulation features. Send media and choose from 8 different caption modes including replacing links, appending text, using filenames, and more!
+Advanced Telegram bot for flexible bulk caption editing. Send media, wait 2 seconds, click Done, pick a mode, and the bot returns everything with modified captions.
 
 ## ✨ Features
 
