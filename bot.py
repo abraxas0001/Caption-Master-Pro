@@ -3,7 +3,7 @@ import os
 import re
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
 
 load_dotenv()
@@ -26,7 +26,7 @@ pending_job = {}  # chat_id -> Job
 waiting_for_input = {}  # chat_id -> mode
 
 
-def start(update: Update, context: CallbackContext):
+def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update.message.reply_text(
         "🎯 *Caption Bot*\n\n"
         "Send media and I'll give you caption options:\n\n"
@@ -68,7 +68,7 @@ def _get_filename(msg, media_type):
         return "unknown_file"
 
 
-def save_media(update: Update, context: CallbackContext):
+def save_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     chat_id = msg.chat_id
     original_caption = msg.caption or ""
@@ -113,7 +113,7 @@ def save_media(update: Update, context: CallbackContext):
     pending_job[chat_id] = job
 
 
-def show_done_button(context: CallbackContext):
+def show_done_button(context: ContextTypes.DEFAULT_TYPE):
     """Show Done button after 2 seconds of no new media"""
     chat_id = context.job.context
     items = pending_media.get(chat_id, [])
@@ -137,7 +137,7 @@ def show_done_button(context: CallbackContext):
     pending_job.pop(chat_id, None)
 
 
-def ask_for_mode(context: CallbackContext, chat_id: int = None):
+def ask_for_mode(context: ContextTypes.DEFAULT_TYPE, chat_id: int = None):
     # Support being called from job or directly
     if chat_id is None:
         chat_id = context.job.context
@@ -179,7 +179,7 @@ def ask_for_mode(context: CallbackContext, chat_id: int = None):
     pending_job.pop(chat_id, None)
 
 
-def button_callback(update: Update, context: CallbackContext):
+def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     query.answer()
     
@@ -224,7 +224,7 @@ def button_callback(update: Update, context: CallbackContext):
         send_media_with_mode(context, chat_id, "remove", "")
 
 
-def handle_text(update: Update, context: CallbackContext):
+def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     text = update.message.text or ""
     
@@ -252,7 +252,7 @@ def handle_text(update: Update, context: CallbackContext):
     send_media_with_mode(context, chat_id, mode, text)
 
 
-def send_media_with_mode(context: CallbackContext, chat_id: int, mode: str, user_text: str):
+def send_media_with_mode(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mode: str, user_text: str):
     items = pending_media.get(chat_id, [])
     
     for typ, file_id, original_caption, filename in items:
@@ -322,7 +322,7 @@ def generate_caption(mode: str, user_text: str, original_caption: str, filename:
     return ""
 
 
-def clear_command(update: Update, context: CallbackContext):
+def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     
     job = pending_job.get(chat_id)
@@ -339,7 +339,7 @@ def clear_command(update: Update, context: CallbackContext):
     update.message.reply_text("Cleared!")
 
 
-def help_command(update: Update, context: CallbackContext):
+def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update.message.reply_text(
         "*Caption Bot Help*\n\n"
         "1. Send media\n"
@@ -358,25 +358,26 @@ def help_command(update: Update, context: CallbackContext):
     )
 
 
-def main():
-    updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+async def main():
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("help", help_command))
-    dp.add_handler(CommandHandler("clear", clear_command))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("clear", clear_command))
     
-    dp.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(CallbackQueryHandler(button_callback))
 
-    media_filter = Filters.photo | Filters.video | Filters.document | Filters.animation | Filters.audio | Filters.voice
-    dp.add_handler(MessageHandler(media_filter, save_media))
+    media_filter = filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.ANIMATION | filters.AUDIO | filters.VOICE
+    application.add_handler(MessageHandler(media_filter, save_media))
 
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    updater.start_polling()
-    logger.info("Bot started")
-    updater.idle()
+    async with application:
+        await application.start()
+        logger.info("Bot started")
+        await application.updater.idle()
 
 
 if __name__ == '__main__':
-    main()
+    import asyncio
+    asyncio.run(main())
