@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 # In-memory per-chat state
 pending_media = {}  # chat_id -> list of (type, file_id, original_caption, filename)
 pending_job = {}  # chat_id -> Job
-waiting_for_input = {}  # chat_id -> mode
+waiting_for_input = {}  # chat_id -> mode or (mode, step, data)
+replace_link_state = {}  # chat_id -> {'target': str, 'replacement': str}
 
 
 def start(update: Update, context: CallbackContext):
@@ -34,9 +35,9 @@ def start(update: Update, context: CallbackContext):
         "• New caption\n"
         "• Keep original\n"
         "• Append/Prepend text\n"
-        "• Replace links (FIXED!)\n"
+        "• Replace links/mentions\n"
         "• Use filename\n"
-        "• Remove caption\n\n"
+        "• Filename with caption\n\n"
         "Send your media!",
         parse_mode='Markdown'
     )
@@ -160,7 +161,7 @@ def ask_for_mode(context: CallbackContext, chat_id: int = None):
             InlineKeyboardButton("📄 Use Filename", callback_data="mode_filename")
         ],
         [
-            InlineKeyboardButton("🚫 Remove Caption", callback_data="mode_remove"),
+            InlineKeyboardButton("📝 Filename with Cap", callback_data="mode_filename_with_cap"),
             InlineKeyboardButton("🔄 Add Text to Each", callback_data="mode_add_to_each")
         ]
     ]
@@ -204,8 +205,8 @@ def button_callback(update: Update, context: CallbackContext):
         query.edit_message_text("⬆️ Send text to prepend:")
         
     elif mode == "replace_links":
-        waiting_for_input[chat_id] = "replace_links"
-        query.edit_message_text("🔗 Send your new link:")
+        waiting_for_input[chat_id] = ("replace_links", "target", None)
+        query.edit_message_text("🔗 Step 1/2: Send the text/link/mention you want to REPLACE (target)")
     
     elif mode == "add_to_each":
         waiting_for_input[chat_id] = "add_to_each"
@@ -219,9 +220,9 @@ def button_callback(update: Update, context: CallbackContext):
         query.edit_message_text("📄 Using filenames as captions...")
         send_media_with_mode(context, chat_id, "filename", "")
         
-    elif mode == "remove":
-        query.edit_message_text("🚫 Removing captions...")
-        send_media_with_mode(context, chat_id, "remove", "")
+    elif mode == "filename_with_cap":
+        query.edit_message_text("📝 Using filename with original caption...")
+        send_media_with_mode(context, chat_id, "filename_with_cap", "")
 
 
 def handle_text(update: Update, context: CallbackContext):
@@ -241,6 +242,30 @@ def handle_text(update: Update, context: CallbackContext):
     if chat_id not in waiting_for_input:
         return
     
+    mode_data = waiting_for_input[chat_id]
+    
+    # Handle two-step replace_links flow
+    if isinstance(mode_data, tuple) and mode_data[0] == "replace_links":
+        step = mode_data[1]
+        if step == "target":
+            # User sent target, now ask for replacement
+            waiting_for_input[chat_id] = ("replace_links", "replacement", text)
+            update.message.reply_text(f"🔗 Step 2/2: Send what you want to replace '{text}' WITH")
+            return
+        elif step == "replacement":
+            # User sent replacement, process media
+            target = mode_data[2]
+            replacement = text
+            waiting_for_input.pop(chat_id)
+            items = pending_media.get(chat_id, [])
+            if not items:
+                update.message.reply_text("No media found.")
+                return
+            update.message.reply_text(f"⚡ Processing {len(items)} items...")
+            send_media_with_mode(context, chat_id, "replace_links", {"target": target, "replacement": replacement})
+            return
+    
+    # Standard single-step flow
     mode = waiting_for_input.pop(chat_id)
     
     items = pending_media.get(chat_id, [])
@@ -296,22 +321,24 @@ def generate_caption(mode: str, user_text: str, original_caption: str, filename:
         return user_text
     
     elif mode == "replace_links":
-        # Replace every URL with the new link; append if none matched
-        url_pattern = r'https?://\S+'
-        if original_caption:
-            new_caption = re.sub(url_pattern, user_text, original_caption)
-            if new_caption == original_caption:
-                # No URLs found; append link
-                return f"{original_caption}\n{user_text}" if original_caption else user_text
-            return new_caption
-        return user_text
+        # user_text is now a dict with target and replacement
+        if isinstance(user_text, dict):
+            target = user_text['target']
+            replacement = user_text['replacement']
+            if original_caption and target in original_caption:
+                return original_caption.replace(target, replacement)
+            return original_caption if original_caption else ""
+        return original_caption
     
     elif mode == "filename":
         clean_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
         return clean_name
     
-    elif mode == "remove":
-        return ""
+    elif mode == "filename_with_cap":
+        clean_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+        if original_caption:
+            return f"{clean_name}\n{original_caption}"
+        return clean_name
     
     elif mode == "add_to_each":
         clean_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
@@ -350,9 +377,9 @@ def help_command(update: Update, context: CallbackContext):
         "• New Caption\n"
         "• Keep Original\n"
         "• Append/Prepend\n"
-        "• Replace Links (fixed!)\n"
+        "• Replace Links/Mentions (2-step)\n"
         "• Use Filename\n"
-        "• Remove\n\n"
+        "• Filename with Caption\n\n"
         "/clear - Reset",
         parse_mode='Markdown'
     )
