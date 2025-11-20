@@ -124,7 +124,7 @@ def show_done_button(context: CallbackContext):
     
     from telegram import KeyboardButton, ReplyKeyboardMarkup
     keyboard = [[KeyboardButton("✅ Done")]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     
     try:
         context.bot.send_message(
@@ -163,6 +163,9 @@ def ask_for_mode(context: CallbackContext, chat_id: int = None):
         [
             InlineKeyboardButton("📝 Filename with Cap", callback_data="mode_filename_with_cap"),
             InlineKeyboardButton("🔄 Add Text to Each", callback_data="mode_add_to_each")
+        ],
+        [
+            InlineKeyboardButton("📚 Make Album", callback_data="mode_make_album")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -172,6 +175,11 @@ def ask_for_mode(context: CallbackContext, chat_id: int = None):
         context.bot.send_message(
             chat_id=chat_id,
             text=f"📦 Received {len(items)} media items!\n\nChoose caption mode:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        context.bot.send_message(
+            chat_id=chat_id,
+            text="Select mode:",
             reply_markup=reply_markup
         )
     except Exception as e:
@@ -223,6 +231,10 @@ def button_callback(update: Update, context: CallbackContext):
     elif mode == "filename_with_cap":
         query.edit_message_text("📝 Using filename with original caption...")
         send_media_with_mode(context, chat_id, "filename_with_cap", "")
+        
+    elif mode == "make_album":
+        query.edit_message_text("📚 Creating albums (max 10 per group)...")
+        send_media_as_album(context, chat_id)
 
 
 def handle_text(update: Update, context: CallbackContext):
@@ -298,6 +310,51 @@ def send_media_with_mode(context: CallbackContext, chat_id: int, mode: str, user
                 context.bot.send_voice(chat_id=chat_id, voice=file_id)
         except Exception as e:
             logger.exception("Failed to send: %s", e)
+    
+    pending_media.pop(chat_id, None)
+    waiting_for_input.pop(chat_id, None)
+
+
+def send_media_as_album(context: CallbackContext, chat_id: int):
+    """Send media as albums with max 10 items per group"""
+    from telegram import InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAudio, InputMediaAnimation
+    
+    items = pending_media.get(chat_id, [])
+    if not items:
+        return
+    
+    # Group items into chunks of 10
+    chunk_size = 10
+    for i in range(0, len(items), chunk_size):
+        chunk = items[i:i + chunk_size]
+        media_group = []
+        
+        for typ, file_id, original_caption, filename in chunk:
+            caption = original_caption if original_caption else ""
+            
+            try:
+                if typ == "photo":
+                    media_group.append(InputMediaPhoto(media=file_id, caption=caption))
+                elif typ == "video":
+                    media_group.append(InputMediaVideo(media=file_id, caption=caption))
+                elif typ == "document":
+                    media_group.append(InputMediaDocument(media=file_id, caption=caption))
+                elif typ == "animation":
+                    media_group.append(InputMediaAnimation(media=file_id, caption=caption))
+                elif typ == "audio":
+                    media_group.append(InputMediaAudio(media=file_id, caption=caption))
+                # Note: voice messages can't be in media groups, send separately
+                elif typ == "voice":
+                    context.bot.send_voice(chat_id=chat_id, voice=file_id)
+            except Exception as e:
+                logger.exception("Failed to prepare media: %s", e)
+        
+        # Send the media group if we have items
+        if media_group:
+            try:
+                context.bot.send_media_group(chat_id=chat_id, media=media_group)
+            except Exception as e:
+                logger.exception("Failed to send media group: %s", e)
     
     pending_media.pop(chat_id, None)
     waiting_for_input.pop(chat_id, None)
