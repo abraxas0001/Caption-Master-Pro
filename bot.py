@@ -2,7 +2,7 @@ import logging
 import os
 import re
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
 
 
@@ -29,8 +29,8 @@ global_replacements = {}  # chat_id -> list of (target, replacement)
 
 
 def start(update: Update, context: CallbackContext):
-    update.message.reply_text(
-        "🎯 CaptionxA Bot\n\n"
+    text = (
+        "🎯 CaptionxAlbum Bot\n\n"
         "Send media and I'll give you caption options. I can also auto-group into albums.\n\n"
         "✨ Features:\n"
         "• ✏️ New caption\n"
@@ -41,14 +41,15 @@ def start(update: Update, context: CallbackContext):
         "• 📝 Filename with caption\n"
         "• 📚 Make album (groups of 10)\n"
         "• 🌐 Global replacements auto-applied (set with /globalreplacement)\n\n"
-        "\"Global Replacement Commands:\n"
-        "• /globalreplacement <target> <replacement> — add or update a global replacement\n"
+        "<blockquote>Global Replacement Commands:\n"
+        "• /globalreplacement &lt;target&gt; &lt;replacement&gt; — add or update a global replacement\n"
         "• /listglobal — show all global replacements\n"
-        "• /removereplacement <index> — remove a global replacement by its list number\n"
+        "• /removereplacement &lt;index&gt; — remove a global replacement by its list number\n"
         "• /clear — reset pending media state (cancels current batch and input; does NOT erase global replacements)\n"
-        "\"\n\n"
+        "</blockquote>\n\n"
         "Send your media!"
     )
+    update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
 def _append_media(chat_id, media_item):
