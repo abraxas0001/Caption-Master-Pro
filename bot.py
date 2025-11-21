@@ -30,9 +30,9 @@ global_replacements = {}  # chat_id -> list of (target, replacement)
 
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
-        "\"Caption Bot\n\n"
+        "🎯 CaptionxA Bot\n\n"
         "Send media and I'll give you caption options. I can also auto-group into albums.\n\n"
-        "Features:\n"
+        "✨ Features:\n"
         "• ✏️ New caption\n"
         "• 📋 Keep original\n"
         "• ➕ Append / ⬆️ Prepend\n"
@@ -41,12 +41,13 @@ def start(update: Update, context: CallbackContext):
         "• 📝 Filename with caption\n"
         "• 📚 Make album (groups of 10)\n"
         "• 🌐 Global replacements auto-applied (set with /globalreplacement)\n\n"
-        "Commands:\n"
+        "\"Global Replacement Commands:\n"
         "• /globalreplacement <target> <replacement> — add or update a global replacement\n"
         "• /listglobal — show all global replacements\n"
         "• /removereplacement <index> — remove a global replacement by its list number\n"
-        "• /clear — reset pending media state (cancels current batch and input; does NOT erase global replacements)\n\n"
-        "Send your media!\""
+        "• /clear — reset pending media state (cancels current batch and input; does NOT erase global replacements)\n"
+        "\"\n\n"
+        "Send your media!"
     )
 
 
@@ -495,31 +496,26 @@ def remove_replacement_command(update: Update, context: CallbackContext):
 
 def help_command(update: Update, context: CallbackContext):
     update.message.reply_text(
-        "\"HELP\n\n"
-        "Workflow:\n"
-        "1. Send media (photos/videos/docs/etc.)\n"
-        "2. After 2 seconds of inactivity a Done button appears\n"
-        "3. Tap Done then pick a caption mode\n"
-        "4. Bot returns processed media (or albums)\n\n"
-        "Caption Modes:\n"
-        "• New Caption — replace all with one text\n"
-        "• Keep Original — unchanged captions\n"
-        "• Append Text — add after existing caption\n"
-        "• Prepend Text — add before existing caption\n"
-        "• Replace Links — two-step target then replacement\n"
-        "• Use Filename — cleaned filename (no extension)\n"
-        "• Filename with Caption — filename first line + original caption\n"
-        "• Add Text to Each — filename first line + your text\n"
-        "• Make Album — send items in media groups (≤10 each)\n\n"
-        "Global Replacements (auto apply after mode):\n"
-        "• /globalreplacement <target> <replacement>\n"
-        "• /listglobal\n"
-        "• /removereplacement <index>\n"
-        "(Order matters; re-adding a target updates it; survives /clear)\n\n"
-        "/clear — cancel current batch: removes pending media, scheduled Done job, waiting input; DOES NOT remove global replacements.\n\n"
-        "All state except global replacements is cleared when batch finishes.\n"
-        "Voice messages cannot carry captions.\n"
-        "Use /start for a quick summary.\""
+        "*Caption Bot Help*\n\n"
+        "1. Send media\n"
+        "2. Wait 2 seconds\n"
+        "3. Choose mode\n"
+        "4. Get media back\n\n"
+        "*Modes:*\n"
+        "• New Caption\n"
+        "• Keep Original\n"
+        "• Append/Prepend\n"
+        "• Replace Links/Mentions (2-step)\n"
+        "• Use Filename\n"
+        "• Filename with Caption\n\n"
+        "*Albums:*\n" 
+        "• 📚 Make Album groups media (max 10 items each)\n\n"
+        "*Global Replacements:*\n"
+        "• /global_replacement <target> <replacement>\n"
+        "• /list_global\n"
+        "• /remove_replacement <index>\n\n"
+        "/clear - Reset",
+        parse_mode='Markdown'
     )
 
 
@@ -533,10 +529,6 @@ def main():
     dp.add_handler(CommandHandler("global_replacement", global_replacement_command))
     dp.add_handler(CommandHandler("list_global", list_global_command))
     dp.add_handler(CommandHandler("remove_replacement", remove_replacement_command))
-    # Alias commands without underscores for user convenience
-    dp.add_handler(CommandHandler("globalreplacement", global_replacement_command))
-    dp.add_handler(CommandHandler("listglobal", list_global_command))
-    dp.add_handler(CommandHandler("removereplacement", remove_replacement_command))
     
     dp.add_handler(CallbackQueryHandler(button_callback))
 
