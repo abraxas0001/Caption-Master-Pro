@@ -48,7 +48,7 @@ def start(update: Update, context: CallbackContext):
         "• /removereplacement &lt;index&gt; — remove a global replacement by its list number\n"
         "• /clear — reset pending media state (cancels current batch and input; does NOT erase global replacements)\n"
         "</blockquote>\n\n"
-        "Send your media!🎬"
+        "<b>Send your media</b>🎬"
     )
     update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
