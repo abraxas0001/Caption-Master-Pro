@@ -39,7 +39,7 @@ def start(update: Update, context: CallbackContext):
         "• 🔗 Replace links / mentions (two-step)\n"
         "• 📄 Use filename\n"
         "• 📝 Filename with caption\n"
-        "• 📚 Make album (groups of 10)\n"
+        "• 📚 Make album (groups of 10)\n\n\n"
         "• 🌐 Global replacements auto-applied (set with /globalreplacement)\n\n"
         "<blockquote>Global Replacement Commands:\n"
         "• /globalreplacement &lt;target&gt; &lt;replacement&gt; — add or update a global replacement\n"
