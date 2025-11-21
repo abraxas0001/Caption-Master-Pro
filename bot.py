@@ -25,19 +25,27 @@ pending_media = {}  # chat_id -> list of (type, file_id, original_caption, filen
 pending_job = {}  # chat_id -> Job
 waiting_for_input = {}  # chat_id -> mode or (mode, step, data)
 replace_link_state = {}  # chat_id -> {'target': str, 'replacement': str}
+global_replacements = {}  # chat_id -> list of (target, replacement)
 
 
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
         "🎯 *Caption Bot*\n\n"
-        "Send media and I'll give you caption options:\n\n"
-        "✨ Features:\n"
-        "• New caption\n"
-        "• Keep original\n"
-        "• Append/Prepend text\n"
-        "• Replace links/mentions\n"
-        "• Use filename\n"
-        "• Filename with caption\n\n"
+        "Send media and I'll give you caption options. I can also auto-group into albums!\n\n"
+        "✨ *Features:*\n"
+        "• ✏️ New caption\n"
+        "• 📋 Keep original\n"
+        "• ➕ Append / ⬆️ Prepend\n"
+        "• 🔗 Replace links / mentions (per batch)\n"
+        "• 📄 Use filename\n"
+        "• 📝 Filename with caption\n"
+        "• 📚 Make album (groups of 10)\n"
+        "• 🌐 Global replacements auto-applied (set with /global_replacement)\n\n"
+        "🛠 *Commands:*\n"
+        "• /global_replacement <target> <replacement> — add or update a global replacement\n"
+        "• /list_global — show all global replacements\n"
+        "• /remove_replacement <index> — remove a global replacement by its list number\n"
+        "• /clear — reset pending media state\n\n"
         "Send your media!",
         parse_mode='Markdown'
     )
@@ -235,6 +243,7 @@ def button_callback(update: Update, context: CallbackContext):
     elif mode == "make_album":
         query.edit_message_text("📚 Creating albums (max 10 per group)...")
         send_media_as_album(context, chat_id)
+    
 
 
 def handle_text(update: Update, context: CallbackContext):
@@ -277,6 +286,7 @@ def handle_text(update: Update, context: CallbackContext):
             send_media_with_mode(context, chat_id, "replace_links", {"target": target, "replacement": replacement})
             return
     
+    
     # Standard single-step flow
     mode = waiting_for_input.pop(chat_id)
     
@@ -294,6 +304,7 @@ def send_media_with_mode(context: CallbackContext, chat_id: int, mode: str, user
     
     for typ, file_id, original_caption, filename in items:
         caption = generate_caption(mode, user_text, original_caption, filename)
+        caption = apply_global_replacements(chat_id, caption)
         
         try:
             if typ == "photo":
@@ -331,6 +342,7 @@ def send_media_as_album(context: CallbackContext, chat_id: int):
         
         for typ, file_id, original_caption, filename in chunk:
             caption = original_caption if original_caption else ""
+            caption = apply_global_replacements(chat_id, caption)
             
             try:
                 if typ == "photo":
@@ -406,6 +418,17 @@ def generate_caption(mode: str, user_text: str, original_caption: str, filename:
     return ""
 
 
+def apply_global_replacements(chat_id: int, text: str) -> str:
+    if not text:
+        return text
+    pairs = global_replacements.get(chat_id, [])
+    for target, repl in pairs:
+        if target:
+            text = text.replace(target, repl)
+    return text
+
+
+
 def clear_command(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     
@@ -423,6 +446,54 @@ def clear_command(update: Update, context: CallbackContext):
     update.message.reply_text("Cleared!")
 
 
+def global_replacement_command(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+    parts = update.message.text.strip().split(maxsplit=2)
+    if len(parts) < 3:
+        update.message.reply_text("Usage: /global_replacement <target> <replacement>")
+        return
+    target = parts[1]
+    replacement = parts[2]
+    lst = global_replacements.get(chat_id)
+    if lst is None:
+        lst = []
+        global_replacements[chat_id] = lst
+    lst[:] = [p for p in lst if p[0] != target]
+    lst.append((target, replacement))
+    update.message.reply_text(f"✅ Added global replacement: {target} → {replacement}")
+
+
+def list_global_command(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+    pairs = global_replacements.get(chat_id, [])
+    if not pairs:
+        update.message.reply_text("🌐 No global replacements set.")
+        return
+    lines = ["🌐 Global replacements:"]
+    for idx, (t, r) in enumerate(pairs, start=1):
+        lines.append(f"{idx}. {t} → {r}")
+    update.message.reply_text("\n".join(lines))
+
+
+def remove_replacement_command(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+    parts = update.message.text.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        update.message.reply_text("Usage: /remove_replacement <index>")
+        return
+    try:
+        idx = int(parts[1])
+    except ValueError:
+        update.message.reply_text("Index must be a number.")
+        return
+    pairs = global_replacements.get(chat_id, [])
+    if idx < 1 or idx > len(pairs):
+        update.message.reply_text("Invalid index.")
+        return
+    removed = pairs.pop(idx - 1)
+    update.message.reply_text(f"✅ Removed: {removed[0]} → {removed[1]}")
+
+
 def help_command(update: Update, context: CallbackContext):
     update.message.reply_text(
         "*Caption Bot Help*\n\n"
@@ -437,6 +508,12 @@ def help_command(update: Update, context: CallbackContext):
         "• Replace Links/Mentions (2-step)\n"
         "• Use Filename\n"
         "• Filename with Caption\n\n"
+        "*Albums:*\n" 
+        "• 📚 Make Album groups media (max 10 items each)\n\n"
+        "*Global Replacements:*\n"
+        "• /global_replacement <target> <replacement>\n"
+        "• /list_global\n"
+        "• /remove_replacement <index>\n\n"
         "/clear - Reset",
         parse_mode='Markdown'
     )
@@ -449,6 +526,9 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", help_command))
     dp.add_handler(CommandHandler("clear", clear_command))
+    dp.add_handler(CommandHandler("global_replacement", global_replacement_command))
+    dp.add_handler(CommandHandler("list_global", list_global_command))
+    dp.add_handler(CommandHandler("remove_replacement", remove_replacement_command))
     
     dp.add_handler(CallbackQueryHandler(button_callback))
 
