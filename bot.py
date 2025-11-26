@@ -303,11 +303,16 @@ def handle_text(update: Update, context: CallbackContext):
 
 def send_media_with_mode(context: CallbackContext, chat_id: int, mode: str, user_text: str):
     items = pending_media.get(chat_id, [])
-    
+
+    # For large batches, send as albums (media groups) to reduce API calls
+    if len(items) > 12:
+        send_media_as_album(context, chat_id)
+        return
+
     for typ, file_id, original_caption, filename in items:
         caption = generate_caption(mode, user_text, original_caption, filename)
         caption = apply_global_replacements(chat_id, caption)
-        
+
         try:
             if typ == "photo":
                 context.bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption)
@@ -323,7 +328,7 @@ def send_media_with_mode(context: CallbackContext, chat_id: int, mode: str, user
                 context.bot.send_voice(chat_id=chat_id, voice=file_id)
         except Exception as e:
             logger.exception("Failed to send: %s", e)
-    
+
     pending_media.pop(chat_id, None)
     waiting_for_input.pop(chat_id, None)
 
