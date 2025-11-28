@@ -3,6 +3,7 @@ import os
 import re
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
+from telegram.error import RetryAfter
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
 
 
@@ -317,8 +318,14 @@ def send_media_with_mode(context: CallbackContext, chat_id: int, mode: str, user
             pass
 
     # For large batches, send as albums (media groups) to reduce API calls
-    if len(items) > 12:
-        send_media_as_album(context, chat_id)
+        if len(items) > 12 and mode not in ("filename", "filename_with_cap", "add_to_each"):
+            send_media_as_album(context, chat_id)
+            return
+
+    # For filename-based modes we send individually allowing filename application to videos
+    if mode in ("filename", "filename_with_cap", "add_to_each"):
+        # Use chunked sender that resumes on RetryAfter
+        _send_items_with_resume(context, chat_id, items, mode, user_text, batch_size=6)
         return
 
     for typ, file_id, original_caption, filename in items:
@@ -389,6 +396,64 @@ def send_media_as_album(context: CallbackContext, chat_id: int):
     
     pending_media.pop(chat_id, None)
     waiting_for_input.pop(chat_id, None)
+
+
+def _send_items_job(context: CallbackContext):
+    data = context.job.context
+    chat_id = data['chat_id']
+    items = data['items']
+    mode = data['mode']
+    user_text = data['user_text']
+    batch_size = data.get('batch_size', 5)
+    _send_items_with_resume(context, chat_id, items, mode, user_text, batch_size)
+
+
+def _send_items_with_resume(context: CallbackContext, chat_id: int, items: list, mode: str, user_text: str, batch_size: int = 5):
+    """Send items in small batches and resume via JobQueue on RetryAfter.
+    items: list of tuples (typ, file_id, original_caption, filename)
+    """
+    if not items:
+        # Done sending; clear state
+        pending_media.pop(chat_id, None)
+        waiting_for_input.pop(chat_id, None)
+        return
+
+    to_send = items[:batch_size]
+    remaining = items[batch_size:]
+
+    for typ, file_id, original_caption, filename in to_send:
+        caption = generate_caption(typ, mode, user_text, original_caption, filename)
+        caption = apply_global_replacements(chat_id, caption)
+        try:
+            if typ == "photo":
+                context.bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption)
+            elif typ == "video":
+                context.bot.send_video(chat_id=chat_id, video=file_id, caption=caption)
+            elif typ == "document":
+                context.bot.send_document(chat_id=chat_id, document=file_id, caption=caption)
+            elif typ == "animation":
+                context.bot.send_animation(chat_id=chat_id, animation=file_id, caption=caption)
+            elif typ == "audio":
+                context.bot.send_audio(chat_id=chat_id, audio=file_id, caption=caption)
+            elif typ == "voice":
+                context.bot.send_voice(chat_id=chat_id, voice=file_id)
+        except RetryAfter as e:
+            logger.warning("RetryAfter when sending items; scheduling resume in %s seconds", e.retry_after)
+            context.job_queue.run_once(_send_items_job, e.retry_after, context={'chat_id': chat_id, 'items': remaining, 'mode': mode, 'user_text': user_text, 'batch_size': batch_size})
+            return
+        except Exception as e:
+            logger.exception("Failed to send item: %s", e)
+        time.sleep(0.06)
+
+    # If there are remaining items, schedule next chunk immediately with a short delay
+    if remaining:
+        try:
+            context.job_queue.run_once(_send_items_job, 0.2, context={'chat_id': chat_id, 'items': remaining, 'mode': mode, 'user_text': user_text, 'batch_size': batch_size})
+        except Exception as e:
+            logger.exception("Failed to schedule next send job: %s", e)
+    else:
+        pending_media.pop(chat_id, None)
+        waiting_for_input.pop(chat_id, None)
 
 
 def generate_caption(media_type: str, mode: str, user_text: str, original_caption: str, filename: str) -> str:
