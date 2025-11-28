@@ -168,11 +168,11 @@ def ask_for_mode(context: CallbackContext, chat_id: int = None):
         ],
         [
             InlineKeyboardButton("🔗 Replace Links", callback_data="mode_replace_links"),
-            InlineKeyboardButton("📄 Use Filename", callback_data="mode_filename")
+            InlineKeyboardButton("📄 Use Filename (videos only)", callback_data="mode_filename")
         ],
         [
-            InlineKeyboardButton("📝 Filename with Cap", callback_data="mode_filename_with_cap"),
-            InlineKeyboardButton("🔄 Add Text to Each", callback_data="mode_add_to_each")
+            InlineKeyboardButton("📝 Filename with Cap (videos only)", callback_data="mode_filename_with_cap"),
+            InlineKeyboardButton("🔄 Add Text to Each (videos only)", callback_data="mode_add_to_each")
         ],
         [
             InlineKeyboardButton("📚 Make Album", callback_data="mode_make_album")
