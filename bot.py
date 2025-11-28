@@ -310,7 +310,7 @@ def send_media_with_mode(context: CallbackContext, chat_id: int, mode: str, user
         return
 
     for typ, file_id, original_caption, filename in items:
-        caption = generate_caption(mode, user_text, original_caption, filename)
+        caption = generate_caption(typ, mode, user_text, original_caption, filename)
         caption = apply_global_replacements(chat_id, caption)
 
         try:
@@ -379,7 +379,7 @@ def send_media_as_album(context: CallbackContext, chat_id: int):
     waiting_for_input.pop(chat_id, None)
 
 
-def generate_caption(mode: str, user_text: str, original_caption: str, filename: str) -> str:
+def generate_caption(media_type: str, mode: str, user_text: str, original_caption: str, filename: str) -> str:
     if mode == "new":
         return user_text
     
@@ -407,20 +407,29 @@ def generate_caption(mode: str, user_text: str, original_caption: str, filename:
         return original_caption
     
     elif mode == "filename":
-        clean_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
-        return clean_name
+        # Only apply filename captions for videos; for all other types keep original
+        if media_type == "video":
+            clean_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+            return clean_name
+        return original_caption
     
     elif mode == "filename_with_cap":
-        clean_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
-        if original_caption:
-            return f"{clean_name}\n{original_caption}"
-        return clean_name
+        # Only apply to videos; otherwise keep original caption
+        if media_type == "video":
+            clean_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+            if original_caption:
+                return f"{clean_name}\n{original_caption}"
+            return clean_name
+        return original_caption
     
     elif mode == "add_to_each":
-        clean_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
-        if user_text:
-            return f"{clean_name}\n{user_text}"
-        return clean_name
+        # Only apply to videos; otherwise keep original caption
+        if media_type == "video":
+            clean_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+            if user_text:
+                return f"{clean_name}\n{user_text}"
+            return clean_name
+        return original_caption
     
     return ""
 
