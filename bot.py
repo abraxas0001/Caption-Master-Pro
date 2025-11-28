@@ -303,6 +303,18 @@ def handle_text(update: Update, context: CallbackContext):
 
 def send_media_with_mode(context: CallbackContext, chat_id: int, mode: str, user_text: str):
     items = pending_media.get(chat_id, [])
+    # If filename-based mode, inform how many videos will receive filename captions
+    if mode in ("filename", "filename_with_cap", "add_to_each"):
+        video_count = sum(1 for t, *_ in items if t == "video")
+        other_count = len(items) - video_count
+        try:
+            if video_count == 0:
+                context.bot.send_message(chat_id=chat_id, text="No videos found — keeping original captions for all items.")
+            else:
+                context.bot.send_message(chat_id=chat_id, text=f"Applying filename-based caption to {video_count} video(s); keeping original captions for {other_count} other items.")
+        except Exception:
+            # Don't block on this notification
+            pass
 
     # For large batches, send as albums (media groups) to reduce API calls
     if len(items) > 12:
