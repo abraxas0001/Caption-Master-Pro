@@ -28,6 +28,7 @@ pending_job = {}  # chat_id -> Job
 waiting_for_input = {}  # chat_id -> mode or (mode, step, data)
 replace_link_state = {}  # chat_id -> {'target': str, 'replacement': str}
 global_replacements = {}  # chat_id -> list of (target, replacement)
+active_sends = {}  # chat_id -> bool (is a send job currently active)
 
 
 def start(update: Update, context: CallbackContext):
@@ -144,6 +145,14 @@ def show_done_button(context: CallbackContext):
             text=f"📦 Received {len(items)} media. Send more or click Done.",
             reply_markup=reply_markup
         )
+    except RetryAfter as e:
+        # Schedule a retry after Telegram's suggested backoff
+        delay = min(10, int(e.retry_after))
+        logger.warning("Flood control for Done button; retrying in %s s (capped)", delay)
+        try:
+            context.job_queue.run_once(show_done_button, delay, context=chat_id)
+        except Exception:
+            logger.exception("Failed to schedule Done button retry")
     except Exception as e:
         logger.exception("Failed to show done button: %s", e)
     
@@ -194,6 +203,14 @@ def ask_for_mode(context: CallbackContext, chat_id: int = None):
             text="Select mode:",
             reply_markup=reply_markup
         )
+    except RetryAfter as e:
+        # Retry showing mode selection after backoff to avoid getting stuck
+        delay = min(10, int(e.retry_after))
+        logger.warning("Flood control for mode prompt; retrying in %s s (capped)", delay)
+        try:
+            context.job_queue.run_once(ask_for_mode, delay, context=chat_id)
+        except Exception:
+            logger.exception("Failed to schedule ask_for_mode retry")
     except Exception as e:
         logger.exception("Failed to ask for mode: %s", e)
 
@@ -421,6 +438,7 @@ def _send_items_with_resume(context: CallbackContext, chat_id: int, items: list,
 
     to_send = items[:batch_size]
     remaining = items[batch_size:]
+    active_sends[chat_id] = True
 
     for typ, file_id, original_caption, filename in to_send:
         caption = generate_caption(typ, mode, user_text, original_caption, filename)
@@ -439,8 +457,10 @@ def _send_items_with_resume(context: CallbackContext, chat_id: int, items: list,
             elif typ == "voice":
                 context.bot.send_voice(chat_id=chat_id, voice=file_id)
         except RetryAfter as e:
-            logger.warning("RetryAfter when sending items; scheduling resume in %s seconds", e.retry_after)
-            context.job_queue.run_once(_send_items_job, e.retry_after, context={'chat_id': chat_id, 'items': remaining, 'mode': mode, 'user_text': user_text, 'batch_size': batch_size})
+            # Cap retry to 10 seconds to avoid long pauses
+            delay = min(10, int(e.retry_after))
+            logger.warning("RetryAfter when sending items; scheduling resume in %s seconds (capped)", delay)
+            context.job_queue.run_once(_send_items_job, delay, context={'chat_id': chat_id, 'items': remaining, 'mode': mode, 'user_text': user_text, 'batch_size': batch_size})
             return
         except Exception as e:
             logger.exception("Failed to send item: %s", e)
@@ -455,6 +475,7 @@ def _send_items_with_resume(context: CallbackContext, chat_id: int, items: list,
     else:
         pending_media.pop(chat_id, None)
         waiting_for_input.pop(chat_id, None)
+        active_sends.pop(chat_id, None)
 
 
 def generate_caption(media_type: str, mode: str, user_text: str, original_caption: str, filename: str) -> str:
