@@ -31,6 +31,7 @@ replace_link_state = {}  # chat_id -> {'target': str, 'replacement': str}
 global_replacements = {}  # chat_id -> list of (target, replacement)
 active_sends = {}  # chat_id -> bool (is a send job currently active)
 user_language = {}  # chat_id -> language code (default 'en')
+auto_translation_enabled = {}  # chat_id -> bool (default True)
 
 
 def start(update: Update, context: CallbackContext):
@@ -314,6 +315,17 @@ def button_callback(update: Update, context: CallbackContext):
         }
         lang_name = lang_names.get(lang_code, lang_code)
         query.edit_message_text(f"✅ Translation language set to: <b>{lang_name}</b>\n\nAll captions will now be auto-translated to {lang_name}.", parse_mode=ParseMode.HTML)
+        return
+    
+    # Handle auto-translation toggle
+    if query.data == "toggle_auto_translation":
+        auto_enabled = auto_translation_enabled.get(chat_id, True)
+        auto_translation_enabled[chat_id] = not auto_enabled
+        new_status = "ON" if not auto_enabled else "OFF"
+        status_emoji = "🟢" if not auto_enabled else "🔴"
+        query.edit_message_text(f"{status_emoji} Auto-translation {new_status}\n\n" + 
+                               ("Captions will be automatically translated." if not auto_enabled else "Captions will NOT be translated automatically."),
+                               parse_mode=ParseMode.HTML)
         return
     
     # Handle translate caption mode language selection
@@ -688,8 +700,8 @@ def apply_global_replacements(chat_id: int, text: str, skip_translation: bool = 
     for target, repl in pairs:
         if target:
             text = text.replace(target, repl)
-    # Auto-translate to user's preferred language (default English) unless skipped
-    if not skip_translation:
+    # Auto-translate to user's preferred language (default English) unless skipped or disabled
+    if not skip_translation and auto_translation_enabled.get(chat_id, True):
         target_lang = user_language.get(chat_id, 'en')
         if target_lang != 'en' or _contains_non_english_non_hindi(text):
             text = _translate_text(text, target_lang)
@@ -738,6 +750,11 @@ def language_command(update: Update, context: CallbackContext):
          InlineKeyboardButton("🇳🇱 Dutch", callback_data="lang_nl")],
         [InlineKeyboardButton("🇵🇱 Polish", callback_data="lang_pl")]
     ]
+    
+    # Add auto-translation toggle button
+    auto_enabled = auto_translation_enabled.get(chat_id, True)
+    toggle_text = "🔴 Auto Translation: OFF" if not auto_enabled else "🟢 Auto Translation: ON"
+    keyboard.append([InlineKeyboardButton(toggle_text, callback_data="toggle_auto_translation")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text(
@@ -796,7 +813,14 @@ def list_global_command(update: Update, context: CallbackContext):
     }
     lang_name = lang_names.get(lang_code, lang_code)
     
-    lines = [f"🌍 <b>Translation Language:</b> {lang_name}\n"]
+    # Check auto-translation status
+    auto_enabled = auto_translation_enabled.get(chat_id, True)
+    auto_status = "🟢 ON" if auto_enabled else "🔴 OFF"
+    
+    lines = [
+        f"🌍 <b>Translation Language:</b> {lang_name}",
+        f"<b>Auto-Translation:</b> {auto_status}\n"
+    ]
     
     # Get global replacements
     pairs = global_replacements.get(chat_id, [])
@@ -837,22 +861,24 @@ def help_command(update: Update, context: CallbackContext):
         "3. Choose mode\n"
         "4. Get media back\n\n"
         "*Modes:*\n"
-        "• New Caption\n"
-        "• Keep Original\n"
-        "• Append/Prepend\n"
-        "• Replace Links/Mentions (2-step)\n"
-        "• Use Filename\n"
-        "• Filename with Caption\n\n"
+        "• ✏️ New Caption\n"
+        "• 📋 Keep Original (no translation)\n"
+        "• ➕ Append / ⬆️ Prepend\n"
+        "• 🔗 Replace Links/Texts (2-step)\n"
+        "• 🌍 Translate Caption (one-time)\n"
+        "• 📄 Use Filename (videos only)\n"
+        "• 📝 Filename with Caption (videos only)\n"
+        "• 🔄 Add Text to Each Filename (videos only)\n\n"
         "*Albums:*\n" 
-        "• 📚 Make Album groups media (max 10 items each)\n\n"
+        "• 📚 Make Album - groups media (max 10 items each)\n\n"
         "*Translation:*\n"
-        "• Auto-translates captions to your language\n"
-        "• /language - Change translation language\n\n"
+        "• Auto-translates all captions to your language\n"
+        "• /language - Change default translation language\n\n"
         "*Global Replacements:*\n"
         "• /global_replacement <target> <replacement>\n"
-        "• /list_global\n"
+        "• /list_global - Show settings & replacements\n"
         "• /remove_replacement <index>\n\n"
-        "/clear - Reset",
+        "/clear - Reset current batch",
         parse_mode='Markdown'
     )
 
