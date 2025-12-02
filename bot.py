@@ -253,12 +253,15 @@ def ask_for_mode(context: CallbackContext, chat_id: int = None):
             InlineKeyboardButton("⬆️ Prepend Text", callback_data="mode_prepend")
         ],
         [
-            InlineKeyboardButton("🔗 Replace Links", callback_data="mode_replace_links"),
-            InlineKeyboardButton("📄 Use Filename (videos only)", callback_data="mode_filename")
+            InlineKeyboardButton("🔗 Replace Links/Texts", callback_data="mode_replace_links"),
+            InlineKeyboardButton("🌍 Translate Caption", callback_data="mode_translate_caption")
         ],
         [
-            InlineKeyboardButton("📝 Filename with Cap (videos only)", callback_data="mode_filename_with_cap"),
-            InlineKeyboardButton("🔄 Add Text to Each (videos only)", callback_data="mode_add_to_each")
+            InlineKeyboardButton("📄 Use Filename (videos only)", callback_data="mode_filename"),
+            InlineKeyboardButton("📝 Filename with Cap (videos only)", callback_data="mode_filename_with_cap")
+        ],
+        [
+            InlineKeyboardButton("🔄 Add Text to Each Filename (videos only)", callback_data="mode_add_to_each")
         ],
         [
             InlineKeyboardButton("📚 Make Album", callback_data="mode_make_album")
@@ -313,6 +316,21 @@ def button_callback(update: Update, context: CallbackContext):
         query.edit_message_text(f"✅ Translation language set to: <b>{lang_name}</b>\n\nAll captions will now be auto-translated to {lang_name}.", parse_mode=ParseMode.HTML)
         return
     
+    # Handle translate caption mode language selection
+    if query.data.startswith("translang_"):
+        lang_code = query.data.replace("translang_", "")
+        
+        lang_names = {
+            'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+            'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
+            'ko': 'Korean', 'zh-CN': 'Chinese (Simplified)', 'ar': 'Arabic',
+            'hi': 'Hindi', 'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
+        }
+        lang_name = lang_names.get(lang_code, lang_code)
+        query.edit_message_text(f"🌍 Translating to {lang_name}...")
+        send_media_with_mode(context, chat_id, "translate_to", lang_code)
+        return
+    
     mode = query.data.replace("mode_", "")
     
     items = pending_media.get(chat_id, [])
@@ -339,6 +357,28 @@ def button_callback(update: Update, context: CallbackContext):
     elif mode == "add_to_each":
         waiting_for_input[chat_id] = "add_to_each"
         query.edit_message_text("🔄 Send text to add below filename:")
+    
+    elif mode == "translate_caption":
+        # Show language selection inline keyboard
+        keyboard = [
+            [InlineKeyboardButton("🇬🇧 English", callback_data="translang_en"),
+             InlineKeyboardButton("🇪🇸 Spanish", callback_data="translang_es")],
+            [InlineKeyboardButton("🇫🇷 French", callback_data="translang_fr"),
+             InlineKeyboardButton("🇩🇪 German", callback_data="translang_de")],
+            [InlineKeyboardButton("🇮🇹 Italian", callback_data="translang_it"),
+             InlineKeyboardButton("🇵🇹 Portuguese", callback_data="translang_pt")],
+            [InlineKeyboardButton("🇷🇺 Russian", callback_data="translang_ru"),
+             InlineKeyboardButton("🇯🇵 Japanese", callback_data="translang_ja")],
+            [InlineKeyboardButton("🇰🇷 Korean", callback_data="translang_ko"),
+             InlineKeyboardButton("🇨🇳 Chinese", callback_data="translang_zh-CN")],
+            [InlineKeyboardButton("🇸🇦 Arabic", callback_data="translang_ar"),
+             InlineKeyboardButton("🇮🇳 Hindi", callback_data="translang_hi")],
+            [InlineKeyboardButton("🇹🇷 Turkish", callback_data="translang_tr"),
+             InlineKeyboardButton("🇳🇱 Dutch", callback_data="translang_nl")],
+            [InlineKeyboardButton("🇵🇱 Polish", callback_data="translang_pl")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.edit_message_text("🌍 Select translation language:", reply_markup=reply_markup)
     
     elif mode == "keep":
         query.edit_message_text("📋 Sending with original captions...")
@@ -439,7 +479,9 @@ def send_media_with_mode(context: CallbackContext, chat_id: int, mode: str, user
 
     for typ, file_id, original_caption, filename in items:
         caption = generate_caption(typ, mode, user_text, original_caption, filename)
-        caption = apply_global_replacements(chat_id, caption)
+        # Skip translation for keep mode and translate_to mode (already translated)
+        skip_translation = (mode == "keep" or mode == "translate_to")
+        caption = apply_global_replacements(chat_id, caption, skip_translation)
 
         try:
             if typ == "photo":
@@ -533,7 +575,8 @@ def _send_items_with_resume(context: CallbackContext, chat_id: int, items: list,
 
     for typ, file_id, original_caption, filename in to_send:
         caption = generate_caption(typ, mode, user_text, original_caption, filename)
-        caption = apply_global_replacements(chat_id, caption)
+        skip_translation = (mode == "keep" or mode == "translate_to")
+        caption = apply_global_replacements(chat_id, caption, skip_translation)
         try:
             if typ == "photo":
                 context.bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption)
@@ -575,6 +618,19 @@ def generate_caption(media_type: str, mode: str, user_text: str, original_captio
     
     elif mode == "keep":
         return original_caption
+    
+    elif mode == "translate_to":
+        # user_text contains the target language code
+        target_lang = user_text if isinstance(user_text, str) and len(user_text) <= 5 else 'en'
+        translated_caption = _translate_text(original_caption, target_lang) if original_caption else ""
+        # For videos, also translate filename
+        if media_type == "video" and filename:
+            translated_filename = _translate_text(filename, target_lang)
+            clean_name = translated_filename.rsplit('.', 1)[0] if '.' in translated_filename else translated_filename
+            if translated_caption:
+                return f"{clean_name}\n{translated_caption}"
+            return clean_name
+        return translated_caption
     
     elif mode == "append":
         if original_caption:
@@ -624,7 +680,7 @@ def generate_caption(media_type: str, mode: str, user_text: str, original_captio
     return ""
 
 
-def apply_global_replacements(chat_id: int, text: str) -> str:
+def apply_global_replacements(chat_id: int, text: str, skip_translation: bool = False) -> str:
     if not text:
         return text
     # Apply global text replacements
@@ -632,10 +688,11 @@ def apply_global_replacements(chat_id: int, text: str) -> str:
     for target, repl in pairs:
         if target:
             text = text.replace(target, repl)
-    # Auto-translate to user's preferred language (default English)
-    target_lang = user_language.get(chat_id, 'en')
-    if target_lang != 'en' or _contains_non_english_non_hindi(text):
-        text = _translate_text(text, target_lang)
+    # Auto-translate to user's preferred language (default English) unless skipped
+    if not skip_translation:
+        target_lang = user_language.get(chat_id, 'en')
+        if target_lang != 'en' or _contains_non_english_non_hindi(text):
+            text = _translate_text(text, target_lang)
     return text
 
 
@@ -728,14 +785,29 @@ def global_replacement_command(update: Update, context: CallbackContext):
 
 def list_global_command(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
+    
+    # Get current translation language
+    lang_code = user_language.get(chat_id, 'en')
+    lang_names = {
+        'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+        'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
+        'ko': 'Korean', 'zh-CN': 'Chinese (Simplified)', 'ar': 'Arabic',
+        'hi': 'Hindi', 'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
+    }
+    lang_name = lang_names.get(lang_code, lang_code)
+    
+    lines = [f"🌍 <b>Translation Language:</b> {lang_name}\n"]
+    
+    # Get global replacements
     pairs = global_replacements.get(chat_id, [])
-    if not pairs:
-        update.message.reply_text("🌐 No global replacements set.")
-        return
-    lines = ["🌐 Global replacements:"]
-    for idx, (t, r) in enumerate(pairs, start=1):
-        lines.append(f"{idx}. {t} → {r}")
-    update.message.reply_text("\n".join(lines))
+    if pairs:
+        lines.append("📝 <b>Global Replacements:</b>")
+        for idx, (t, r) in enumerate(pairs, start=1):
+            lines.append(f"{idx}. <code>{t}</code> → <code>{r}</code>")
+    else:
+        lines.append("📝 <b>Global Replacements:</b> None")
+    
+    update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
 def remove_replacement_command(update: Update, context: CallbackContext):
