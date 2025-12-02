@@ -893,13 +893,13 @@ def remove_replacement_command(update: Update, context: CallbackContext):
 
 
 def help_command(update: Update, context: CallbackContext):
-    update.message.reply_text(
-        "*Caption Bot Help*\n\n"
+    text = (
+        "<b>Caption Bot Help</b>\n\n"
         "1. Send media\n"
         "2. Wait 2 seconds\n"
         "3. Choose mode\n"
         "4. Get media back\n\n"
-        "*Modes:*\n"
+        "<b>Modes:</b>\n"
         "• ✏️ New Caption\n"
         "• 📋 Keep Original (no translation)\n"
         "• ➕ Append / ⬆️ Prepend\n"
@@ -908,18 +908,18 @@ def help_command(update: Update, context: CallbackContext):
         "• 📄 Use Filename (videos only)\n"
         "• 📝 Filename with Caption (videos only)\n"
         "• 🔄 Add Text to Each Filename (videos only)\n\n"
-        "*Albums:*\n" 
+        "<b>Albums:</b>\n"
         "• 📚 Make Album - groups media (max 10 items each)\n\n"
-        "*Translation:*\n"
+        "<b>Translation:</b>\n"
         "• Auto-translates all captions to your language\n"
         "• /language - Change default translation language\n\n"
-        "*Global Replacements:*\n"
-        "• /global_replacement <target> <replacement>\n"
+        "<b>Global Replacements:</b>\n"
+        "• /global_replacement &lt;target&gt; &lt;replacement&gt;\n"
         "• /list_global - Show settings & replacements\n"
-        "• /remove_replacement <index>\n\n"
-        "/clear - Reset current batch",
-        parse_mode='Markdown'
+        "• /remove_replacement &lt;index&gt;\n\n"
+        "/clear - Reset current batch"
     )
+    update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
 def main():
