@@ -43,16 +43,16 @@ def start(update: Update, context: CallbackContext):
         "• 📋 Keep original\n"
         "• ➕ Append / ⬆️ Prepend\n"
         "• 🔗 Replace links / mentions (two-step)\n"
-        "• 📄 Use filename\n"
+        "• 🌍 Use Filename\n"
         "• 📝 Filename with caption\n"
         "• 📚 Make album (groups of 10)\n"
-        "• 🌐 Auto-translate to your language (default: English)\n\n\n"
+        "• 🌍 Auto-translate to your language (default: English)\n\n\n"
         "<blockquote>"
-        "• 🌐 Global replacements auto-applied (set with /globalreplacement)\n\n"
+        "• 🌍 Global replacements auto-applied (set with /global_replacement)\n\n"
         "Global Replacement Commands:\n"
-        "• /globalreplacement &lt;target&gt; &lt;replacement&gt; — add or update a global replacement\n"
-        "• /listglobal — show all global replacements\n"
-        "• /removereplacement &lt;index&gt; — remove a global replacement by its list number\n"
+        "• /global_replacement &lt;target&gt; &lt;replacement&gt; — add or update a global replacement\n"
+        "• /list_global — show all global replacements\n"
+        "• /remove_replacement &lt;index&gt; — remove a global replacement by its list number\n"
         "• /language — change translation language (default: English)\n"
         "• /clear — reset pending media state (cancels current batch and input; does NOT erase global replacements)\n"
         "</blockquote>\n\n"
@@ -311,7 +311,10 @@ def button_callback(update: Update, context: CallbackContext):
             'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
             'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
             'ko': 'Korean', 'zh-CN': 'Chinese (Simplified)', 'ar': 'Arabic',
-            'hi': 'Hindi', 'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
+            'hi': 'Hindi', 'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish',
+            'bn': 'Bengali', 'vi': 'Vietnamese', 'th': 'Thai', 'id': 'Indonesian',
+            'ms': 'Malay', 'fa': 'Persian', 'ur': 'Urdu', 'sw': 'Swahili',
+            'uk': 'Ukrainian', 'ro': 'Romanian'
         }
         lang_name = lang_names.get(lang_code, lang_code)
         query.edit_message_text(f"✅ Translation language set to: <b>{lang_name}</b>\n\nAll captions will now be auto-translated to {lang_name}.", parse_mode=ParseMode.HTML)
@@ -336,7 +339,10 @@ def button_callback(update: Update, context: CallbackContext):
             'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
             'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
             'ko': 'Korean', 'zh-CN': 'Chinese (Simplified)', 'ar': 'Arabic',
-            'hi': 'Hindi', 'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
+            'hi': 'Hindi', 'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish',
+            'bn': 'Bengali', 'vi': 'Vietnamese', 'th': 'Thai', 'id': 'Indonesian',
+            'ms': 'Malay', 'fa': 'Persian', 'ur': 'Urdu', 'sw': 'Swahili',
+            'uk': 'Ukrainian', 'ro': 'Romanian'
         }
         lang_name = lang_names.get(lang_code, lang_code)
         query.edit_message_text(f"🌍 Translating to {lang_name}...")
@@ -387,7 +393,17 @@ def button_callback(update: Update, context: CallbackContext):
              InlineKeyboardButton("🇮🇳 Hindi", callback_data="translang_hi")],
             [InlineKeyboardButton("🇹🇷 Turkish", callback_data="translang_tr"),
              InlineKeyboardButton("🇳🇱 Dutch", callback_data="translang_nl")],
-            [InlineKeyboardButton("🇵🇱 Polish", callback_data="translang_pl")]
+            [InlineKeyboardButton("🇵🇱 Polish", callback_data="translang_pl"),
+             InlineKeyboardButton("🇧🇩 Bengali", callback_data="translang_bn")],
+            [InlineKeyboardButton("🇻🇳 Vietnamese", callback_data="translang_vi"),
+             InlineKeyboardButton("🇹🇭 Thai", callback_data="translang_th")],
+            [InlineKeyboardButton("🇮🇩 Indonesian", callback_data="translang_id"),
+             InlineKeyboardButton("🇲🇾 Malay", callback_data="translang_ms")],
+            [InlineKeyboardButton("🇮🇷 Persian", callback_data="translang_fa"),
+             InlineKeyboardButton("🇵🇰 Urdu", callback_data="translang_ur")],
+            [InlineKeyboardButton("🇰🇪 Swahili", callback_data="translang_sw"),
+             InlineKeyboardButton("🇺🇦 Ukrainian", callback_data="translang_uk")],
+            [InlineKeyboardButton("🇷🇴 Romanian", callback_data="translang_ro")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         query.edit_message_text("🌍 Select translation language:", reply_markup=reply_markup)
@@ -728,12 +744,27 @@ def language_command(update: Update, context: CallbackContext):
         'hi': 'Hindi',
         'tr': 'Turkish',
         'nl': 'Dutch',
-        'pl': 'Polish'
+        'pl': 'Polish',
+        'bn': 'Bengali',
+        'vi': 'Vietnamese',
+        'th': 'Thai',
+        'id': 'Indonesian',
+        'ms': 'Malay',
+        'fa': 'Persian',
+        'ur': 'Urdu',
+        'sw': 'Swahili',
+        'uk': 'Ukrainian',
+        'ro': 'Romanian'
     }
     
     current_name = lang_names.get(current_lang, 'English')
     
+    # Add auto-translation toggle button at top
+    auto_enabled = auto_translation_enabled.get(chat_id, True)
+    toggle_text = "🔴 Auto Translation: OFF" if not auto_enabled else "🟢 Auto Translation: ON"
+    
     keyboard = [
+        [InlineKeyboardButton(toggle_text, callback_data="toggle_auto_translation")],
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
          InlineKeyboardButton("🇪🇸 Spanish", callback_data="lang_es")],
         [InlineKeyboardButton("🇫🇷 French", callback_data="lang_fr"),
@@ -748,13 +779,18 @@ def language_command(update: Update, context: CallbackContext):
          InlineKeyboardButton("🇮🇳 Hindi", callback_data="lang_hi")],
         [InlineKeyboardButton("🇹🇷 Turkish", callback_data="lang_tr"),
          InlineKeyboardButton("🇳🇱 Dutch", callback_data="lang_nl")],
-        [InlineKeyboardButton("🇵🇱 Polish", callback_data="lang_pl")]
+        [InlineKeyboardButton("🇵🇱 Polish", callback_data="lang_pl"),
+         InlineKeyboardButton("🇧🇩 Bengali", callback_data="lang_bn")],
+        [InlineKeyboardButton("🇻🇳 Vietnamese", callback_data="lang_vi"),
+         InlineKeyboardButton("🇹🇭 Thai", callback_data="lang_th")],
+        [InlineKeyboardButton("🇮🇩 Indonesian", callback_data="lang_id"),
+         InlineKeyboardButton("🇲🇾 Malay", callback_data="lang_ms")],
+        [InlineKeyboardButton("🇮🇷 Persian", callback_data="lang_fa"),
+         InlineKeyboardButton("🇵🇰 Urdu", callback_data="lang_ur")],
+        [InlineKeyboardButton("🇰🇪 Swahili", callback_data="lang_sw"),
+         InlineKeyboardButton("🇺🇦 Ukrainian", callback_data="lang_uk")],
+        [InlineKeyboardButton("🇷🇴 Romanian", callback_data="lang_ro")]
     ]
-    
-    # Add auto-translation toggle button
-    auto_enabled = auto_translation_enabled.get(chat_id, True)
-    toggle_text = "🔴 Auto Translation: OFF" if not auto_enabled else "🟢 Auto Translation: ON"
-    keyboard.append([InlineKeyboardButton(toggle_text, callback_data="toggle_auto_translation")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text(
@@ -809,7 +845,10 @@ def list_global_command(update: Update, context: CallbackContext):
         'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
         'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
         'ko': 'Korean', 'zh-CN': 'Chinese (Simplified)', 'ar': 'Arabic',
-        'hi': 'Hindi', 'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
+        'hi': 'Hindi', 'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish',
+        'bn': 'Bengali', 'vi': 'Vietnamese', 'th': 'Thai', 'id': 'Indonesian',
+        'ms': 'Malay', 'fa': 'Persian', 'ur': 'Urdu', 'sw': 'Swahili',
+        'uk': 'Ukrainian', 'ro': 'Romanian'
     }
     lang_name = lang_names.get(lang_code, lang_code)
     
