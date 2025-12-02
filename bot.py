@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.error import RetryAfter
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
+from deep_translator import GoogleTranslator
 
 
 load_dotenv()
@@ -71,7 +72,7 @@ def _get_filename(msg, media_type):
         elif media_type == "video":
             return msg.video.file_name or f"video_{msg.video.file_unique_id}.mp4"
         elif media_type == "document":
-            return msg.document.file_name or f"document_{msg.document.file_unique_id}"
+            return msg.document.file_name or f"document_{msg.document.file_name}.file_unique_id}"
         elif media_type == "animation":
             return msg.animation.file_name or f"animation_{msg.animation.file_unique_id}.gif"
         elif media_type == "audio":
@@ -80,6 +81,73 @@ def _get_filename(msg, media_type):
             return f"voice_{msg.voice.file_unique_id}.ogg"
     except Exception:
         return "unknown_file"
+
+
+def _contains_non_english_non_hindi(text: str) -> bool:
+    """Check if text contains non-English alphabets (excluding Hindi/Devanagari).
+    Returns True if text has Cyrillic, CJK, Arabic, Thai, Myanmar, etc.
+    Returns False for English alphabet or Hindi/Devanagari script.
+    """
+    if not text:
+        return False
+    
+    # Character ranges for non-English, non-Hindi scripts
+    non_english_ranges = [
+        (0x0400, 0x04FF),  # Cyrillic
+        (0x0530, 0x058F),  # Armenian
+        (0x0590, 0x05FF),  # Hebrew
+        (0x0600, 0x06FF),  # Arabic
+        (0x0700, 0x074F),  # Syriac
+        (0x0780, 0x07BF),  # Thaana
+        (0x0E00, 0x0E7F),  # Thai
+        (0x0E80, 0x0EFF),  # Lao
+        (0x1000, 0x109F),  # Myanmar
+        (0x10A0, 0x10FF),  # Georgian
+        (0x1100, 0x11FF),  # Hangul Jamo
+        (0x1200, 0x137F),  # Ethiopic
+        (0x13A0, 0x13FF),  # Cherokee
+        (0x1400, 0x167F),  # Canadian Aboriginal
+        (0x1680, 0x169F),  # Ogham
+        (0x16A0, 0x16FF),  # Runic
+        (0x1780, 0x17FF),  # Khmer
+        (0x1800, 0x18AF),  # Mongolian
+        (0x3040, 0x309F),  # Hiragana
+        (0x30A0, 0x30FF),  # Katakana
+        (0x3100, 0x312F),  # Bopomofo
+        (0x3130, 0x318F),  # Hangul Compatibility Jamo
+        (0x3400, 0x4DBF),  # CJK Unified Ideographs Extension A
+        (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+        (0xA000, 0xA48F),  # Yi Syllables
+        (0xAC00, 0xD7AF),  # Hangul Syllables
+        (0xF900, 0xFAFF),  # CJK Compatibility Ideographs
+    ]
+    # Devanagari range (Hindi) - we should NOT translate
+    devanagari_range = (0x0900, 0x097F)
+    
+    for char in text:
+        code = ord(char)
+        # Skip if it's Devanagari (Hindi)
+        if devanagari_range[0] <= code <= devanagari_range[1]:
+            continue
+        # Check if it's in any non-English range
+        for start, end in non_english_ranges:
+            if start <= code <= end:
+                return True
+    return False
+
+
+def _translate_to_english(text: str) -> str:
+    """Translate non-English (non-Hindi) text to English using GoogleTranslator."""
+    if not text or not _contains_non_english_non_hindi(text):
+        return text
+    
+    try:
+        translator = GoogleTranslator(source='auto', target='en')
+        translated = translator.translate(text)
+        return translated if translated else text
+    except Exception as e:
+        logger.exception("Translation failed: %s", e)
+        return text
 
 
 def save_media(update: Update, context: CallbackContext):
@@ -186,6 +254,7 @@ def ask_for_mode(context: CallbackContext, chat_id: int = None):
             InlineKeyboardButton("🔄 Add Text to Each (videos only)", callback_data="mode_add_to_each")
         ],
         [
+            InlineKeyboardButton("🌐 Translate to English", callback_data="mode_translate"),
             InlineKeyboardButton("📚 Make Album", callback_data="mode_make_album")
         ]
     ]
@@ -260,6 +329,10 @@ def button_callback(update: Update, context: CallbackContext):
     elif mode == "filename_with_cap":
         query.edit_message_text("📝 Using filename with original caption...")
         send_media_with_mode(context, chat_id, "filename_with_cap", "")
+        
+    elif mode == "translate":
+        query.edit_message_text("🌐 Translating non-English captions to English...")
+        send_media_with_mode(context, chat_id, "translate", "")
         
     elif mode == "make_album":
         query.edit_message_text("📚 Creating albums (max 10 per group)...")
@@ -529,6 +602,18 @@ def generate_caption(media_type: str, mode: str, user_text: str, original_captio
                 return f"{clean_name}\n{user_text}"
             return clean_name
         return original_caption
+    
+    elif mode == "translate":
+        # Translate caption and filename to English (skip Hindi)
+        translated_caption = _translate_to_english(original_caption) if original_caption else ""
+        translated_filename = _translate_to_english(filename) if filename else ""
+        # For videos, use translated filename if available; otherwise use translated caption
+        if media_type == "video" and translated_filename and translated_filename != filename:
+            clean_name = translated_filename.rsplit('.', 1)[0] if '.' in translated_filename else translated_filename
+            if translated_caption:
+                return f"{clean_name}\n{translated_caption}"
+            return clean_name
+        return translated_caption
     
     return ""
 
