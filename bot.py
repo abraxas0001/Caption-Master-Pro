@@ -47,7 +47,7 @@ def start(update: Update, context: CallbackContext):
         "• 📝 Filename with caption\n"
         "• 📚 Make album (groups of 10)\n"
         "• 🌍 Auto-translate to your language (default: English)\n\n\n"
-        "<blockquote>"
+        "<blockquote expandable>"
         "• 🌍 Global replacements auto-applied (set with /global_replacement)\n\n"
         "Global Replacement Commands:\n"
         "• /global_replacement &lt;target&gt; &lt;replacement&gt; — add or update a global replacement\n"
