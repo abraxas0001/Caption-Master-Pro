@@ -2,9 +2,13 @@ import logging
 import time
 import os
 import re
+import socket
+import sys
+import random
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, Bot
 from telegram.error import RetryAfter, NetworkError
+from telegram.utils.request import Request
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
 from deep_translator import GoogleTranslator
 
@@ -922,8 +926,60 @@ def help_command(update: Update, context: CallbackContext):
     update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
+def _run_connectivity_diagnostics(host='api.telegram.org', port=443, timeout=5):
+    """Run basic DNS and TCP connectivity checks and return a short report string."""
+    logs = []
+    try:
+        ais = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+        families = sorted(set(str(a[0]) for a in ais))
+        logs.append(f"getaddrinfo returned {len(ais)} entries; families: {', '.join(families)}")
+        ipv4 = any(a[0] == socket.AF_INET for a in ais)
+        ipv6 = any(a[0] == socket.AF_INET6 for a in ais)
+        logs.append(f"IPv4 resolved: {ipv4}; IPv6 resolved: {ipv6}")
+    except Exception as e:
+        logs.append(f"getaddrinfo failed: {e}")
+
+    for family in (socket.AF_INET, socket.AF_INET6):
+        try:
+            for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+                af, socktype, proto, canonname, sa = res
+                s = None
+                try:
+                    s = socket.socket(af, socktype, proto)
+                    s.settimeout(timeout)
+                    s.connect(sa)
+                    logs.append(f"TCP connect success to {sa} (family={af})")
+                    s.close()
+                    break
+                except Exception as e:
+                    logs.append(f"TCP connect failed to {sa} (family={af}): {e}")
+                finally:
+                    if s:
+                        s.close()
+        except Exception as e:
+            logs.append(f"Family {family} check failed: {e}")
+
+    return "\n".join(logs)
+
+
 def main():
-    updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
+    # Support proxy via TELEGRAM_PROXY_URL or standard HTTPS_PROXY/HTTP_PROXY env vars
+    proxy_url = (
+        os.getenv('TELEGRAM_PROXY_URL')
+        or os.getenv('HTTPS_PROXY')
+        or os.getenv('https_proxy')
+        or os.getenv('HTTP_PROXY')
+        or os.getenv('http_proxy')
+    )
+    req = None
+    if proxy_url:
+        logger.info("Using proxy for Telegram requests: %s", proxy_url)
+        req = Request(proxy_url=proxy_url)
+        bot = Bot(token=TELEGRAM_BOT_TOKEN, request=req)
+        updater = Updater(bot=bot, use_context=True)
+    else:
+        updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
+
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler("start", start))
@@ -944,14 +1000,41 @@ def main():
     # Start polling with retry/backoff to handle transient network/egress failures (e.g., Railway outages)
     max_backoff = int(os.getenv("TELEGRAM_START_BACKOFF_MAX", "300"))  # cap backoff (seconds), configurable via env
     backoff = 1
+    attempts = 0
+    max_attempts_env = os.getenv("TELEGRAM_START_MAX_ATTEMPTS")
+    max_attempts = None
+    if max_attempts_env:
+        try:
+            max_attempts = int(max_attempts_env)
+        except ValueError:
+            logger.warning("Invalid TELEGRAM_START_MAX_ATTEMPTS value: %s", max_attempts_env)
+
+    enable_diagnostics = os.getenv("TELEGRAM_ENABLE_DIAGNOSTICS", "1") not in ("0", "false", "False")
+
     while True:
         try:
             updater.start_polling()
             logger.info("Bot started")
             break
         except NetworkError as e:
-            logger.warning("Network error connecting to Telegram (retrying in %s s): %s", backoff, e)
-            time.sleep(backoff)
+            attempts += 1
+            logger.warning("Network error connecting to Telegram (attempt %s) — will retry: %s", attempts, e)
+
+            if enable_diagnostics:
+                try:
+                    diag = _run_connectivity_diagnostics()
+                    logger.warning("Connectivity diagnostics:\n%s", diag)
+                except Exception:
+                    logger.exception("Diagnostics failed")
+
+            if max_attempts is not None and attempts >= max_attempts:
+                logger.error("Exceeded max start attempts (%s), exiting", max_attempts)
+                sys.exit(1)
+
+            # Sleep with a small jitter to avoid thundering herd on platform restarts
+            sleep_time = backoff + random.uniform(0, min(1, backoff))
+            logger.info("Retrying start_polling in %s seconds (backoff=%s)", round(sleep_time, 2), backoff)
+            time.sleep(sleep_time)
             backoff = min(backoff * 2, max_backoff)
         except Exception:
             logger.exception("Unexpected error while starting polling")
