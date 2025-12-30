@@ -4,7 +4,7 @@ import os
 import re
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
-from telegram.error import RetryAfter
+from telegram.error import RetryAfter, NetworkError
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
 from deep_translator import GoogleTranslator
 
@@ -941,8 +941,22 @@ def main():
 
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
 
-    updater.start_polling()
-    logger.info("Bot started")
+    # Start polling with retry/backoff to handle transient network/egress failures (e.g., Railway outages)
+    max_backoff = int(os.getenv("TELEGRAM_START_BACKOFF_MAX", "300"))  # cap backoff (seconds), configurable via env
+    backoff = 1
+    while True:
+        try:
+            updater.start_polling()
+            logger.info("Bot started")
+            break
+        except NetworkError as e:
+            logger.warning("Network error connecting to Telegram (retrying in %s s): %s", backoff, e)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
+        except Exception:
+            logger.exception("Unexpected error while starting polling")
+            raise
+
     updater.idle()
 
 
