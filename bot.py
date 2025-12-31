@@ -997,48 +997,73 @@ def main():
 
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
 
-    # Start polling with retry/backoff to handle transient network/egress failures (e.g., Railway outages)
-    max_backoff = int(os.getenv("TELEGRAM_START_BACKOFF_MAX", "300"))  # cap backoff (seconds), configurable via env
-    backoff = 1
-    attempts = 0
-    max_attempts_env = os.getenv("TELEGRAM_START_MAX_ATTEMPTS")
-    max_attempts = None
-    if max_attempts_env:
+    # Check if we should use webhook mode (for Railway/production) or polling (for local dev)
+    webhook_url = os.getenv("WEBHOOK_URL")
+    port = int(os.getenv("PORT", "8000"))
+    
+    if webhook_url:
+        # Webhook mode for Railway deployment
+        logger.info("Starting bot in webhook mode")
+        logger.info(f"Webhook URL: {webhook_url}")
+        logger.info(f"Port: {port}")
+        
         try:
-            max_attempts = int(max_attempts_env)
-        except ValueError:
-            logger.warning("Invalid TELEGRAM_START_MAX_ATTEMPTS value: %s", max_attempts_env)
-
-    enable_diagnostics = os.getenv("TELEGRAM_ENABLE_DIAGNOSTICS", "1") not in ("0", "false", "False")
-
-    while True:
-        try:
-            updater.start_polling()
-            logger.info("Bot started")
-            break
-        except NetworkError as e:
-            attempts += 1
-            logger.warning("Network error connecting to Telegram (attempt %s) — will retry: %s", attempts, e)
-
-            if enable_diagnostics:
-                try:
-                    diag = _run_connectivity_diagnostics()
-                    logger.warning("Connectivity diagnostics:\n%s", diag)
-                except Exception:
-                    logger.exception("Diagnostics failed")
-
-            if max_attempts is not None and attempts >= max_attempts:
-                logger.error("Exceeded max start attempts (%s), exiting", max_attempts)
-                sys.exit(1)
-
-            # Sleep with a small jitter to avoid thundering herd on platform restarts
-            sleep_time = backoff + random.uniform(0, min(1, backoff))
-            logger.info("Retrying start_polling in %s seconds (backoff=%s)", round(sleep_time, 2), backoff)
-            time.sleep(sleep_time)
-            backoff = min(backoff * 2, max_backoff)
-        except Exception:
-            logger.exception("Unexpected error while starting polling")
+            updater.start_webhook(
+                listen="0.0.0.0",
+                port=port,
+                url_path=TELEGRAM_BOT_TOKEN,
+                webhook_url=f"{webhook_url}/{TELEGRAM_BOT_TOKEN}"
+            )
+            logger.info("Bot started in webhook mode")
+        except Exception as e:
+            logger.exception("Failed to start webhook: %s", e)
             raise
+    else:
+        # Polling mode for local development
+        logger.info("Starting bot in polling mode")
+        
+        # Start polling with retry/backoff to handle transient network/egress failures
+        max_backoff = int(os.getenv("TELEGRAM_START_BACKOFF_MAX", "300"))  # cap backoff (seconds), configurable via env
+        backoff = 1
+        attempts = 0
+        max_attempts_env = os.getenv("TELEGRAM_START_MAX_ATTEMPTS")
+        max_attempts = None
+        if max_attempts_env:
+            try:
+                max_attempts = int(max_attempts_env)
+            except ValueError:
+                logger.warning("Invalid TELEGRAM_START_MAX_ATTEMPTS value: %s", max_attempts_env)
+
+        enable_diagnostics = os.getenv("TELEGRAM_ENABLE_DIAGNOSTICS", "1") not in ("0", "false", "False")
+
+        while True:
+            try:
+                updater.start_polling()
+                logger.info("Bot started in polling mode")
+                break
+            except NetworkError as e:
+                attempts += 1
+                logger.warning("Network error connecting to Telegram (attempt %s) — will retry: %s", attempts, e)
+
+                if enable_diagnostics:
+                    try:
+                        diag = _run_connectivity_diagnostics()
+                        logger.warning("Connectivity diagnostics:\n%s", diag)
+                    except Exception:
+                        logger.exception("Diagnostics failed")
+
+                if max_attempts is not None and attempts >= max_attempts:
+                    logger.error("Exceeded max start attempts (%s), exiting", max_attempts)
+                    sys.exit(1)
+
+                # Sleep with a small jitter to avoid thundering herd on platform restarts
+                sleep_time = backoff + random.uniform(0, min(1, backoff))
+                logger.info("Retrying start_polling in %s seconds (backoff=%s)", round(sleep_time, 2), backoff)
+                time.sleep(sleep_time)
+                backoff = min(backoff * 2, max_backoff)
+            except Exception:
+                logger.exception("Unexpected error while starting polling")
+                raise
 
     updater.idle()
 
